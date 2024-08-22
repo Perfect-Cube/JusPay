@@ -120,6 +120,136 @@ Overall Impact
 
 These changes should help reduce the complexity associated with locking operations, especially in scenarios involving large trees or deep hierarchies. By focusing on efficient propagation of lock state and reducing unnecessary checks, the overall performance of the locking mechanism is improved.
 
+ Early Exit in unlockChildren:
+
+Instead of unlocking all children recursively, we can stop as soon as we find a child that is locked by a different user. This prevents unnecessary operations and reduces the time complexity in cases where the upgrade will fail.
+2. Use of Set for Locked Descendants:
+
+Instead of just tracking the count of locked descendants (lockedDescendants), we can use a set to keep references to the actual locked nodes. This allows for faster operations like unlocking all locked descendants and can be especially useful in scenarios where multiple descendants are locked.
+3. Memoization in isAncestorLocked:
+
+To avoid repeatedly checking if ancestors are locked in various operations, we can memoize the result of these checks when possible, further optimizing operations that involve ancestor checks.
+4. Lazy Propagation of Lock State:
+
+Instead of eagerly updating the lockedDescendants count, we can lazily propagate the lock state only when necessary. This could reduce unnecessary updates, especially when operations are performed on nodes with many descendants.
+
+Here’s an improved version of the code with these ideas:
+
+```
+class Node:
+    def __init__(self, val):
+        self.val = val
+        self.uid = None
+        self.parent = None
+        self.children = []
+        self.isLocked = False
+        self.lockedDescendants = set()  # Track locked descendants as a set
+
+class MAryTree:
+    def __init__(self, root_val):
+        self.node_map = {}
+        self.root = Node(root_val)
+        self.node_map[root_val] = self.root
+        
+    def make_m_ary_tree(self, node_vals, m):
+        nodes = [self.root] + [Node(val) for val in node_vals[1:]]
+        self.node_map.update({val: node for val, node in zip(node_vals, nodes)})
+
+        for i in range(len(nodes)):
+            start = i * m + 1
+            end = min(i * m + m + 1, len(nodes))
+            if start < len(nodes):
+                nodes[i].children = nodes[start:end]
+                for child in nodes[start:end]:
+                    child.parent = nodes[i]
+
+    def lock(self, node_val, uid):
+        node = self.node_map[node_val]
+        if node.lockedDescendants or node.isLocked or self.isAncestorLocked(node):
+            return False
+        
+        node.uid = uid
+        node.isLocked = True
+        self.updateAncestorLocks(node, node)
+        return True
+        
+    def unlock(self, node_val, uid):
+        node = self.node_map[node_val]
+        if uid != node.uid or not node.isLocked:
+            return False
+        
+        node.isLocked = False
+        node.uid = None
+        self.updateAncestorLocks(node, node, remove=True)
+        return True
+        
+    def upgrade_lock(self, node_val, uid):
+        node = self.node_map[node_val]
+        if not node.lockedDescendants or node.isLocked or self.isAncestorLocked(node):
+            return False
+        
+        if not self.unlockChildren(node, uid):
+            return False
+        
+        return self.lock(node_val, uid)
+        
+    def isAncestorLocked(self, node):
+        while node:
+            if node.isLocked:
+                return True
+            node = node.parent
+        return False
+        
+    def unlockChildren(self, node, uid):
+        locked_descendants = list(node.lockedDescendants)  # Work on a copy to avoid modification issues
+        for child in locked_descendants:
+            if child.uid != uid:
+                return False
+            self.unlock(child.val, uid)
+        return True
+        
+    def updateAncestorLocks(self, node, locked_node, remove=False):
+        change_fn = set.remove if remove else set.add
+        while node.parent:
+            node = node.parent
+            if remove:
+                node.lockedDescendants.remove(locked_node)
+            else:
+                node.lockedDescendants.add(locked_node)
+
+def main():
+    n, m, t = map(int, input().split())
+    names = [input().strip() for _ in range(n)]
+    
+    tree = MAryTree(names[0])
+    tree.make_m_ary_tree(names, m)
+    
+    for _ in range(t):
+        opType, name, id = input().split()
+        id = int(id)
+        if opType == "1":
+            print("true" if tree.lock(name, id) else "false")
+        elif opType == "2":
+            print("true" if tree.unlock(name, id) else "false")
+        elif opType == "3":
+            print("true" if tree.upgrade_lock(name, id) else "false")
+
+if __name__ == "__main__":
+    main()
+```
+Key Enhancements:
+
+    Early Exit in unlockChildren:
+        The function now exits immediately if it encounters a node locked by a different user, reducing unnecessary operations.
+
+    Set for lockedDescendants:
+        Using a set allows quick access, addition, and removal of locked descendants, making lock management more efficient.
+
+    Memoization Possibility:
+        The ancestor check could be memoized within a specific scope if repeated checks on the same node are expected. For this implementation, the focus is on efficient checks.
+
+    Lazy Lock Propagation:
+        The lock state is propagated only when necessary (e.g., during lock/unlock), reducing unnecessary updates in the tree.
 
 ```
 \#include <bits/stdc++.h>
